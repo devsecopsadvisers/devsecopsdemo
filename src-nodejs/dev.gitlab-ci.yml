@@ -1,0 +1,117 @@
+code_quality:
+  stage: Code Quality
+  artifacts:
+    expose_as: 'Code Quality Report'
+    paths: [gl-code-quality-report.json]
+  #allow_failure: true
+
+
+sast:
+  stage: Code Security ( SAST )
+  artifacts:
+    expose_as: 'Code Security Report'
+    paths: [gl-sast-report.json]
+  script:
+    - echo 'Code Security ( SAST )'   
+
+
+secret_detection:
+  stage: Code Security ( SAST )
+
+
+dependency_scanning:
+  stage: Code Security ( SAST )
+
+
+unit_testing:
+  stage: Unit/Functional Testing and Sign Off
+  script: echo 'Unit Testing and Sign Off'
+
+
+
+functional_testing:
+  stage: Unit/Functional Testing and Sign Off
+  script: echo 'Unit Functional and Sign Off'
+
+
+
+# Overriding the container scanning template
+container_scanning:
+  stage: Code Security ( SAST - Image Scanning )
+  variables:
+    IMAGE: registry.gitlab.com/devsecopsadviser1/devsecopsadviser/src-nodejs:latest
+    CS_IMAGE: registry.gitlab.com/devsecopsadviser1/devsecopsadviser/src-nodejs:latest
+    DS_DISABLE_DIND: "true" # disable docker-in-docker for dependency scanning
+  artifacts:
+    paths: [gl-container-scanning-report.json]
+
+# build image that follows the predefined CI/CD variables rcongied by continaer scanning template
+build:
+  stage: Build
+  image: docker:stable
+  services:
+    - name: docker:dind
+      alias: thedockerhost
+  variables:
+    IMAGE: registry.gitlab.com/devsecopsadviser1/devsecopsadviser/src-nodejs
+    DOCKER_HOST: tcp://thedockerhost:2375/
+    # Use the overlayfs driver for improved performance:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker info
+    - docker login registry.gitlab.com -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD}
+  script:
+    # Run `docker build --no-cache .` to update dependencies
+    - cd $CI_PROJECT_DIR/src-nodejs
+    - docker build -t $IMAGE .
+    - docker push $IMAGE
+  after_script:
+    - docker logout registry.gitlab.com
+
+# run the node js app from the docker image
+deploy_dev:
+  stage: Deploy ( Development )
+  environment:
+    name: development
+    url: https://example.com
+  image: docker:stable
+  services:
+    - name: docker:dind
+      alias: thedockerhost
+  variables:
+    IMAGE_TAG: registry.gitlab.com/devsecopsadviser1/devsecopsadviser/src-nodejs
+    DOCKER_HOST: tcp://thedockerhost:2375/
+    # Use the overlayfs driver for improved performance:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker info
+    - docker login registry.gitlab.com -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD}
+  script:
+    # Run `docker build --no-cache .` to update dependencies
+    - cd $CI_PROJECT_DIR/src-nodejs
+    - docker build -t $IMAGE_TAG .
+    - docker run -p 49160:30100 -d $IMAGE_TAG
+    - sleep 60    
+    - apk --no-cache add curl
+    - curl -v http://thedockerhost:49160
+    - curl thedockerhost:49160    
+  after_script:
+    - docker logout registry.gitlab.com
+
+dev_application_security:
+  stage: Dev Application Security ( DAST )
+  image: registry.gitlab.com/devsecopsadviser1/devsecopsadviser/src-nodejs
+  services: # use services to link your app container to the dast job
+    - name: registry.gitlab.com/devsecopsadviser1/devsecopsadviser/src-nodejs
+      alias: yourapp
+  variables:
+    DAST_WEBSITE: https://yourapp
+    DAST_FULL_SCAN_ENABLED: "true" # do a full scan
+    DAST_BROWSER_SCAN: "true" # use the browser-based GitLab DAST crawler
+  #allow_failure: true
+  script:
+    - echo "dast running"
+  artifacts:
+    paths: [gl-dast-report.json]

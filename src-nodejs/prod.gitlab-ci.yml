@@ -1,0 +1,48 @@
+
+deploy_production:
+  stage: Deploy ( Production )
+  environment:
+    name: production
+    url: https://example.com
+  image: docker:stable
+  services:
+    - name: docker:dind
+      alias: thedockerhost
+  variables:
+    IMAGE_TAG: registry.gitlab.com/devsecopsadviser1/devsecopsadviser
+    DOCKER_HOST: tcp://thedockerhost:2375/
+    # Use the overlayfs driver for improved performance:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker info
+    - docker login registry.gitlab.com -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD}
+  script:
+    # Run `docker build --no-cache .` to update dependencies
+    - docker build -t $IMAGE_TAG .
+    - docker run -p 49160:30100 -d $IMAGE_TAG
+    - apk --no-cache add curl
+    - curl docker:49160
+  after_script:
+    - docker logout registry.gitlab.com
+  when: manual
+#  dependencies:
+#    - prod_application_security
+
+
+prod_application_security:
+  stage: Production Application Security ( DAST )
+  image: registry.gitlab.com/devsecopsadviser1/devsecopsadviser
+  services: # use services to link your app container to the dast job
+    - name: registry.gitlab.com/devsecopsadviser1/devsecopsadviser
+      alias: yourapp
+  variables:
+    DAST_WEBSITE: https://yourapp
+    DAST_FULL_SCAN_ENABLED: "true" # do a full scan
+    DAST_BROWSER_SCAN: "true" # use the browser-based GitLab DAST crawler
+  #allow_failure: true
+  script:
+    - echo "dast running"
+  artifacts:
+    paths: [gl-dast-report.json]
+  needs: ["deploy_production"]

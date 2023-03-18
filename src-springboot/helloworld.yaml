@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: springboot-helloworld-rolling
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: springboot-helloworld-rolling
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: springboot-helloworld-rolling
+    spec:
+      containers:
+        - name: springboot-helloworld-rolling
+          image: 'ngtrainings/springboot-helloworld-master:v4'
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: springboot-helloworld-rolling-svc
+  labels:
+    name: springboot-helloworld-rolling
+spec:
+  ports:
+    - port: 8081
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: springboot-helloworld-rolling
+  type: NodePort

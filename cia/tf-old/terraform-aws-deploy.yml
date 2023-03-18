@@ -1,0 +1,76 @@
+
+variables:
+  TF_DIR: ${CI_PROJECT_DIR}   # directory in which terraform files are kept
+  STATE_NAME: "aws_tf_state"      # name of terraform state used in "terraform init" command
+  ADDRESS: "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/terraform/state/${STATE_NAME}"
+
+.pre-config:
+  # image used in each and each stage  
+  image:
+    name: hashicorp/terraform:light
+    entrypoint: [""]
+
+  # script to be executed before each stage 
+  before_script:
+    - terraform --version
+    - export GITLAB_ACCESS_TOKEN=$TOKEN
+    - cd ${TF_DIR}            # to get inside terraform directory
+    - terraform init  -reconfigure -backend-config="address=${ADDRESS}" -backend-config="lock_address=${ADDRESS}/lock" -backend-config="unlock_address=${ADDRESS}/lock" -backend-config="username=devsecopsadviser" -backend-config="password=$GITLAB_ACCESS_TOKEN" -backend-config="lock_method=POST" -backend-config="unlock_method=DELETE" -backend-config="retry_wait_min=5"    # to initiate terraform backend / gitlab managed terraform state
+
+# to validate terraform files configuration
+validate:
+  extends: .pre-config
+  stage: validate
+  script:
+    - terraform validate
+  cache:           # to create caches of terraform modules present in .terraform folder  
+    key: ${CI_COMMIT_REF_NAME}
+    paths:
+    - ${TF_DIR}/.terraform
+    policy: pull-push
+
+# to check the plan of the infrastructure
+plan:
+  extends: .pre-config
+  stage: plan
+  script:
+    - terraform plan 
+  dependencies:               # dependent on validate stage.
+    - validate
+  cache:
+    key: ${CI_COMMIT_REF_NAME}
+    paths:
+    - ${TF_DIR}/.terraform
+    policy: pull
+
+# to create infrastructure on cloud
+apply:
+  extends: .pre-config
+  stage: apply
+  script:
+    - terraform apply  -auto-approve
+  dependencies:              # dependent on plan stage.
+    - plan
+  cache:
+    key: ${CI_COMMIT_REF_NAME}
+    paths:
+    - ${TF_DIR}/.terraform
+    policy: pull
+  when: manual    
+
+# to destroy infrastructure on cloud. It needs manual aqpproval 
+destroy:
+  extends: .pre-config
+  stage: destroy
+  script:
+    - terraform destroy  -auto-approve
+  dependencies:           # dependent on plan & apply stage. 
+    - plan
+    - apply
+  cache:
+    key: ${CI_COMMIT_REF_NAME}
+    paths:
+    - ${TF_DIR}/.terraform
+    policy: pull
+  when: manual
+
